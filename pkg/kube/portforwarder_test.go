@@ -21,6 +21,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
 )
 
 func TestNewPortForwarder(t *testing.T) {
@@ -83,4 +86,42 @@ func TestNewPortForwarder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNamespacedRESTClientGetterNamespace(t *testing.T) {
+	shared := genericclioptions.NewConfigFlags(true)
+	shared.Namespace = ptr.To(KmeshNamespace)
+
+	getter := &namespacedRESTClientGetter{RESTClientGetter: shared, ns: "my-ns"}
+
+	ns, explicit, err := getter.ToRawKubeConfigLoader().Namespace()
+	require.NoError(t, err)
+	assert.Equal(t, "my-ns", ns)
+	assert.True(t, explicit)
+
+	// The shared factory must remain untouched.
+	assert.Equal(t, KmeshNamespace, *shared.Namespace)
+
+	sharedNS, _, err := shared.ToRawKubeConfigLoader().Namespace()
+	require.NoError(t, err)
+	assert.Equal(t, KmeshNamespace, sharedNS)
+}
+
+func TestNamespacedRESTClientGetterDelegatesNonNamespaceCalls(t *testing.T) {
+	shared := genericclioptions.NewConfigFlags(true)
+	shared.Namespace = ptr.To(KmeshNamespace)
+	shared.APIServer = ptr.To("https://example.com:6443")
+
+	getter := &namespacedRESTClientGetter{RESTClientGetter: shared, ns: "my-ns"}
+
+	cfg, err := getter.ToRESTConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com:6443", cfg.Host)
+
+	rawCfg, err := getter.ToRawKubeConfigLoader().RawConfig()
+	require.NoError(t, err)
+	_ = rawCfg
+
+	var _ clientcmd.ClientConfig = getter.ToRawKubeConfigLoader()
+	var _ genericclioptions.RESTClientGetter = getter
 }
